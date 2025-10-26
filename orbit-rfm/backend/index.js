@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2');
+const { Parser } = require('json2csv');
 
 const app = express();
 app.use(cors());
@@ -9,8 +10,8 @@ app.use(express.json());
 // DB connection config
 const db = mysql.createConnection({
     host: 'localhost',
-    user: 'root',                    // Just 'root', NOT 'root@localhost'
-    password: 'Botarun@123',         // Your MySQL password
+    user: 'root',                    // Edit as needed for your system
+    password: 'Botarun@123',         // Edit as needed for your system
     database: 'orbit_rfm'
 });
 
@@ -22,10 +23,8 @@ db.connect((err) => {
     console.log('Connected to MySQL.');
 });
 
-// Root endpoint
 app.get('/', (req, res) => res.send('Backend working!'));
 
-// Get all universities as JSON
 app.get('/universities', (req, res) => {
     db.query('SELECT * FROM universities', (err, results) => {
         if (err) {
@@ -36,28 +35,36 @@ app.get('/universities', (req, res) => {
     });
 });
 
-// MATCH endpoint (POST): receives {gmat, gpa, workExp, targetProgram}
+// MATCH endpoint: calculates best-fit universities for given scores
 app.post('/match', (req, res) => {
     const { gmat, gpa, workExp, targetProgram } = req.body;
-
     db.query('SELECT * FROM universities', (err, results) => {
         if (err) return res.status(500).json({ error: err });
-
-        // Basic matching logic: match score = sum of how well candidate matches each criterion
         let matched = results.map(u => {
             let score = 0;
-            score += Math.max(0, gmat - u.min_gmat);  // +ve diff
-            score += Math.max(0, (gpa - u.min_gpa) * 100); // scale for gpa
-            score += (u.tier === 'Tier 1' ? 10 : u.tier === 'Tier 2' ? 7 : 4); // simulated preference for tier
-            // Add more factors if you want!
+            score += Math.max(0, gmat - u.min_gmat);
+            score += Math.max(0, (gpa - u.min_gpa) * 100);
+            score += (u.tier === 'Tier 1' ? 12 : u.tier === 'Tier 2' ? 8 : 5); // more weight for top tier
+            score += (workExp ? Math.min(10, workExp) : 0); // bonus for work exp
             return {...u, matchScore: score};
         });
-        // Sort descending by score
         matched.sort((a, b) => b.matchScore - a.matchScore);
         res.json(matched);
     });
 });
 
-// Add more endpoints below this line as you build
+// EXPORT to CSV endpoint
+app.post('/export', (req, res) => {
+    const results = req.body.results || [];
+    try {
+        const parser = new Parser();
+        const csv = parser.parse(results);
+        res.header('Content-Type', 'text/csv');
+        res.attachment('universities.csv');
+        return res.send(csv);
+    } catch (err) {
+        res.status(500).json({ error: err });
+    }
+});
 
 app.listen(5000, () => console.log('Server running on port 5000'));
